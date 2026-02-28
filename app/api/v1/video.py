@@ -40,7 +40,7 @@ def _resolve_params(prompt, model, seconds, size, aspect_ratio=None, resolution=
     elif size and size in SIZE_TO_ASPECT:
         ar = SIZE_TO_ASPECT[size]
     else:
-        ar = "3:2"
+        ar = "9:16"
     return {
         "model": model or "grok-imagine-1.0-video",
         "aspect_ratio": ar,
