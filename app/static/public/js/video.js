@@ -491,7 +491,7 @@
     };
 
     es.onerror = () => {
-      if (!isRunning) return;
+      // 已移除 isRunning 检查
       setStatus('error', '连接错误');
       finishRun(true);
     };
@@ -503,7 +503,7 @@
       await stopVideoTask(currentTaskId, authHeader);
     }
     closeSource();
-    isRunning = false;
+    // isRunning 已移除
     currentTaskId = '';
     stopElapsedTimer();
     setButtons(false);
