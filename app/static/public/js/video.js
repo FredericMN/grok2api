@@ -423,10 +423,7 @@
       return;
     }
 
-    if (isRunning) {
-      toast('已在生成中', 'warning');
-      return;
-    }
+    // 允许并发，不再检查 isRunning
 
     const authHeader = await ensurePublicKey();
     if (authHeader === null) {
@@ -435,8 +432,6 @@
       return;
     }
 
-    isRunning = true;
-    startBtn.disabled = true;
     updateMeta();
     resetOutput(true);
     initPreviewSlot();
@@ -447,8 +442,6 @@
       taskId = await createVideoTask(authHeader);
     } catch (e) {
       setStatus('error', '创建任务失败');
-      startBtn.disabled = false;
-      isRunning = false;
       return;
     }
 
@@ -518,10 +511,7 @@
   }
 
   function finishRun(hasError) {
-    if (!isRunning) return;
     closeSource();
-    isRunning = false;
-    setButtons(false);
     stopElapsedTimer();
     if (!hasError) {
       setStatus('connected', '完成');
