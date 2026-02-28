@@ -1,0 +1,96 @@
+[app]
+app_url = "http://192.168.31.91:8100"
+app_key = "Asdf7320"
+api_key = ""
+public_enabled = true
+public_key = "Asdf7320"
+image_format = "url"
+video_format = "html"
+temporary = true
+disable_memory = true
+stream = true
+thinking = true
+dynamic_statsig = true
+filter_tags = ["xaiartifact","xai:tool_usage_card","grok:render"]
+tool_call_mode = "prompt"
+
+[proxy]
+base_proxy_url = ""
+asset_proxy_url = ""
+cf_clearance = "rhF.r2Sk6XwwQKdJgycfoVwMhPHVG8ibbIYcziuFlBQ-1772288896-1.2.1.1-1_VfUK_KgFcIKqV34EvAlJLC4OdZuHgzWpmjTfVcv0S_vSnYzZJL7AC0DDK.8LhA.5Mnxt39enmZwerfV4E6rhiiJw3LJhKlGInDmMZZ7qbYuIAiSkUlNAVY7fYq28tJkdJ8RzngsPS4rhqvzyAyIyNCyLVh3D63gSOnVDADny492oX6U0C_KT5lNQ5H43g.A7K0.4TC0iXnJ1L8u0QtOdfzOnSCnc2f_h_RzQhfLAoA6mlaMykrGdoS0MWCmksj"
+browser = "chrome142"
+user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+
+[retry]
+max_retry = 3
+retry_status_codes = [401,429,403]
+reset_session_status_codes = [403]
+retry_backoff_base = 0.5
+retry_backoff_factor = 2
+retry_backoff_max = 30
+retry_budget = 90
+
+[token]
+auto_refresh = true
+refresh_interval_hours = 8
+super_refresh_interval_hours = 2
+fail_threshold = 5
+save_delay_ms = 200
+usage_flush_interval_sec = 5
+reload_interval_sec = 30
+
+[cache]
+enable_auto_clean = true
+limit_mb = 1024
+
+[chat]
+concurrent = 50
+timeout = 120
+stream_timeout = 120
+
+[image]
+timeout = 120
+stream_timeout = 120
+final_timeout = 15
+blocked_grace_seconds = 10
+nsfw = true
+medium_min_bytes = 30000
+final_min_bytes = 100000
+blocked_parallel_attempts = 5
+blocked_parallel_enabled = true
+image_ws = true
+
+[imagine_fast]
+n = "1"
+size = "1024x1024"
+response_format = "url"
+
+[video]
+concurrent = 50
+timeout = 120
+stream_timeout = 120
+
+[voice]
+timeout = 120
+
+[asset]
+upload_concurrent = 25
+upload_timeout = 60
+download_concurrent = 25
+download_timeout = 60
+list_concurrent = 25
+list_timeout = 60
+list_batch_size = 10
+delete_concurrent = 25
+delete_timeout = 60
+delete_batch_size = 10
+
+[nsfw]
+concurrent = 10
+batch_size = 50
+timeout = 60
+
+[usage]
+concurrent = 25
+batch_size = 50
+timeout = 60

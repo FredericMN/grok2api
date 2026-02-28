@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Union
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
@@ -191,13 +191,14 @@ def resolve_aspect_ratio(size: str) -> str:
 
 def validate_edit_request(request: ImageEditRequest, images: List[UploadFile]):
     """验证图片编辑请求参数"""
-    if request.model != "grok-imagine-1.0-edit":
+    if request.model not in ("grok-imagine-1.0-edit", "grok-imagine-1.0"):
         raise ValidationException(
             message=("The model `grok-imagine-1.0-edit` is required for image edits."),
             param="model",
             code="model_not_supported",
         )
-    model_info = ModelService.get(request.model)
+    effective_model = "grok-imagine-1.0-edit" if request.model == "grok-imagine-1.0" else request.model
+    model_info = ModelService.get(effective_model)
     if not model_info or not model_info.is_image_edit:
         edit_models = [m.model_id for m in ModelService.MODELS if m.is_image_edit]
         raise ValidationException(
@@ -276,7 +277,8 @@ async def create_image(request: ImageGenerationRequest):
 
     # 获取 token 和模型信息
     token_mgr, token = await _get_token(request.model)
-    model_info = ModelService.get(request.model)
+    effective_model = "grok-imagine-1.0-edit" if request.model == "grok-imagine-1.0" else request.model
+    model_info = ModelService.get(effective_model)
     aspect_ratio = resolve_aspect_ratio(request.size)
 
     result = await ImageGenerationService().generate(
@@ -317,8 +319,8 @@ async def create_image(request: ImageGenerationRequest):
 
 @router.post("/images/edits")
 async def edit_image(
+    request: Request,
     prompt: str = Form(...),
-    image: List[UploadFile] = File(...),
     model: Optional[str] = Form("grok-imagine-1.0-edit"),
     n: int = Form(1),
     size: str = Form("1024x1024"),
@@ -332,6 +334,13 @@ async def edit_image(
 
     同官方 API 格式，仅支持 multipart/form-data 文件上传
     """
+    # 兼容 OpenAI SDK 发送的 image[] 字段名
+    form = await request.form()
+    image = list(form.getlist('image')) or list(form.getlist('image[]'))
+    if not image:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail={'error': {'message': 'image field required', 'param': 'image', 'code': 'missing_field'}})
+
     if response_format is None:
         response_format = resolve_response_format(None)
 
@@ -412,8 +421,9 @@ async def edit_image(
         images.append(f"data:{mime};base64,{b64}")
 
     # 获取 token 和模型信息
-    token_mgr, token = await _get_token(edit_request.model)
-    model_info = ModelService.get(edit_request.model)
+    _eff_edit_model = "grok-imagine-1.0-edit" if edit_request.model == "grok-imagine-1.0" else edit_request.model
+    token_mgr, token = await _get_token(_eff_edit_model)
+    model_info = ModelService.get(_eff_edit_model)
 
     result = await ImageEditService().edit(
         token_mgr=token_mgr,
