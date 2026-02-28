@@ -323,7 +323,7 @@ async def edit_image(
     prompt: str = Form(...),
     model: Optional[str] = Form("grok-imagine-1.0-edit"),
     n: int = Form(1),
-    size: str = Form("1024x1024"),
+    size: str = Form("720x1280"),
     quality: str = Form("standard"),
     response_format: Optional[str] = Form(None),
     style: Optional[str] = Form(None),
@@ -434,6 +434,7 @@ async def edit_image(
         n=edit_request.n,
         response_format=response_format,
         stream=bool(edit_request.stream),
+        size=edit_request.size or "720x1280",
     )
 
     if result.stream:

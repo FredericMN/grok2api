@@ -58,6 +58,7 @@ class ImageEditService:
         response_format: str,
         stream: bool,
         chat_format: bool = False,
+        size: str = "720x1280",
     ) -> ImageEditResult:
         if len(images) > 3:
             logger.info(
@@ -92,11 +93,20 @@ class ImageEditService:
                     current_token, image_urls
                 )
 
+                _size_to_aspect = {
+                    "1280x720": "16:9",
+                    "720x1280": "9:16",
+                    "1792x1024": "3:2",
+                    "1024x1792": "2:3",
+                    "1024x1024": "1:1",
+                }
+                _aspect_ratio = _size_to_aspect.get(size, "9:16")
                 model_config_override = {
                     "modelMap": {
                         "imageEditModel": "imagine",
                         "imageEditModelConfig": {
                             "imageReferences": image_urls,
+                            "aspectRatio": _aspect_ratio,
                         },
                     }
                 }
