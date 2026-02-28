@@ -54,14 +54,12 @@
   }
 
   function setButtons(running) {
-    if (!startBtn || !stopBtn) return;
+    // 并发模式：不再隐藏开始按钮，只控制停止按钮
+    if (!stopBtn) return;
     if (running) {
-      startBtn.classList.add('hidden');
       stopBtn.classList.remove('hidden');
     } else {
-      startBtn.classList.remove('hidden');
       stopBtn.classList.add('hidden');
-      startBtn.disabled = false;
     }
   }
 
