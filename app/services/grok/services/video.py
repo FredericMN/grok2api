@@ -35,6 +35,9 @@ from app.services.reverse.video_upscale import VideoUpscaleReverse
 from app.services.reverse.utils.session import ResettableSession
 from app.services.token.manager import BASIC_POOL_NAME
 
+
+# 全局已使用 token 集合，避免并发时重复使用同一 token
+_used_tokens: set = set()
 _VIDEO_SEMAPHORE = None
 _VIDEO_SEM_VALUE = 0
 
@@ -118,6 +121,7 @@ class VideoService:
         logger.info(
             f"Video generation: prompt='{prompt[:50]}...', ratio={aspect_ratio}, length={video_length}s, preset={preset}"
         )
+        logger.info(f"[DEBUG] videoGenModelConfig aspectRatio={aspect_ratio}")
         post_id = await self.create_post(token, prompt)
         mode_map = {
             "fun": "--mode=extremely-crazy",
@@ -262,6 +266,7 @@ class VideoService:
                 resolution=resolution,
                 video_length=video_length,
                 pool_candidates=pool_candidates,
+                exclude=_used_tokens,
             )
 
             if not token_info:
@@ -276,6 +281,7 @@ class VideoService:
 
             # Extract token string from TokenInfo.
             token = token_info.token
+            _used_tokens.add(token)
             if token.startswith("sso="):
                 token = token[4:]
             pool_name = token_mgr.get_pool_name_for_token(token)

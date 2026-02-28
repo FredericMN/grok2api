@@ -312,7 +312,7 @@ class TokenManager:
             return token[4:]
         return token
 
-    def get_token_info(self, pool_name: str = "ssoBasic", prefer_tags: Optional[Set[str]] = None) -> Optional["TokenInfo"]:
+    def get_token_info(self, pool_name: str = "ssoBasic", prefer_tags: Optional[Set[str]] = None, exclude: Optional[Set[str]] = None) -> Optional["TokenInfo"]:
         """
         获取可用 Token 的完整信息
 
@@ -339,6 +339,7 @@ class TokenManager:
         resolution: str = "480p",
         video_length: int = 6,
         pool_candidates: Optional[List[str]] = None,
+        exclude: Optional[set] = None,
     ) -> Optional["TokenInfo"]:
         """
         根据视频需求智能选择 Token 池
@@ -370,7 +371,13 @@ class TokenManager:
             ordered_pools = [primary_pool, fallback_pool]
 
         for idx, pool_name in enumerate(ordered_pools):
-            token_info = self.get_token_info(pool_name)
+            token_info = self.get_token_info(pool_name, prefer_tags=None, exclude=exclude)
+            # 排除已使用的 token
+            if token_info and exclude and token_info.token in exclude:
+                # 尝试找一个不在 exclude 里的
+                pool = self.pools.get(pool_name)
+                if pool:
+                    token_info = pool.select(exclude=exclude)
             if token_info:
                 if idx == 0:
                     logger.info(
