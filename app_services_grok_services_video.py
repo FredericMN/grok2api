@@ -536,7 +536,6 @@ class VideoStreamProcessor(BaseProcessor):
         except StreamIdleTimeoutError as e:
             raise UpstreamException(
                 message=f"Video stream idle timeout after {e.idle_seconds}s",
-                status_code=504,
                 details={
                     "error": str(e),
                     "type": "stream_idle_timeout",
@@ -550,7 +549,6 @@ class VideoStreamProcessor(BaseProcessor):
                 )
                 raise UpstreamException(
                     message="Upstream connection closed unexpectedly",
-                    status_code=502,
                     details={"error": str(e), "type": "http2_stream_error"},
                 )
             logger.error(
@@ -558,7 +556,6 @@ class VideoStreamProcessor(BaseProcessor):
             )
             raise UpstreamException(
                 message=f"Upstream request failed: {e}",
-                status_code=502,
                 details={"error": str(e)},
             )
         except Exception as e:
@@ -568,7 +565,6 @@ class VideoStreamProcessor(BaseProcessor):
             )
             raise UpstreamException(
                 message=f"Video stream error: {e}",
-                status_code=502,
                 details={"error": str(e), "type": type(e).__name__},
             )
         finally:
