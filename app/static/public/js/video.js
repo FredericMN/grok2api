@@ -44,6 +44,7 @@
       this.elapsedTimer = null;
       this.lastProgress = 0;
       this.isRunning = true;
+      this.hasVideoContent = false;
     }
 
     close() {
@@ -358,6 +359,9 @@
         videoUrl = videoEl.getAttribute('src');
       }
     }
+    if (videoUrl) {
+      ctx.hasVideoContent = true;
+    }
     updateItemLinks(item, videoUrl);
   }
 
@@ -376,6 +380,9 @@
     source.type = 'video/mp4';
     video.appendChild(source);
     body.appendChild(video);
+    if (safeUrl) {
+      ctx.hasVideoContent = true;
+    }
     updateItemLinks(item, safeUrl);
   }
 
@@ -431,7 +438,14 @@
     if (ctx.previewItem) {
       const placeholder = ctx.previewItem.querySelector('.video-item-placeholder');
       if (placeholder) {
-        placeholder.textContent = hasError ? '生成失败' : '已完成';
+        if (hasError) {
+          placeholder.textContent = '生成失败';
+        } else if (!ctx.hasVideoContent) {
+          placeholder.textContent = '生成失败（无视频返回）';
+          ctx.previewItem.classList.add('is-failed');
+        } else {
+          placeholder.textContent = '已完成';
+        }
       }
     }
     setButtons();

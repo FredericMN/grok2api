@@ -15,4 +15,5 @@ services:
       - ./logs:/app/logs
       - ./app/static/public/js/video.js:/app/app/static/public/js/video.js:ro
       - ./app/static/public/css/video.css:/app/app/static/public/css/video.css:ro
+      - ./app_services_grok_services_video.py:/app/app/services/grok/services/video.py:ro
     restart: unless-stopped
