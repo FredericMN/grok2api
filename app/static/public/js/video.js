@@ -97,15 +97,10 @@
     }
   }
 
-  function setButtons(running) {
+  function setButtons() {
     // 并发模式：只要有任务在运行就显示停止按钮
     if (!stopBtn) return;
-    const hasRunning = taskRegistry.size > 0;
-    if (hasRunning) {
-      stopBtn.classList.remove('hidden');
-    } else {
-      stopBtn.classList.add('hidden');
-    }
+    stopBtn.classList.toggle('hidden', taskRegistry.size === 0);
   }
 
   function updateProgress(value) {
@@ -143,18 +138,18 @@
         videoEmpty.classList.remove('hidden');
       }
       previewCount = 0;
-      // 关闭所有任务
-      for (const ctx of taskRegistry.values()) {
+      // 关闭所有任务（先复制到数组，避免迭代中删除）
+      const contexts = [...taskRegistry.values()];
+      for (const ctx of contexts) {
         ctx.close();
       }
-      taskRegistry.clear();
     }
     updateProgress(0);
     setIndeterminate(false);
     if (durationValue) {
       durationValue.textContent = '耗时 -';
     }
-    setButtons(false);
+    setButtons();
   }
 
   function initPreviewSlot(ctx) {
@@ -372,13 +367,21 @@
     const safeUrl = url || '';
     const body = item.querySelector('.video-item-body');
     if (!body) return;
-    body.innerHTML = `<video controls preload="metadata"><source src="${safeUrl}" type="video/mp4"></video>`;
+    body.innerHTML = '';
+    const video = document.createElement('video');
+    video.controls = true;
+    video.preload = 'metadata';
+    const source = document.createElement('source');
+    source.src = safeUrl;
+    source.type = 'video/mp4';
+    video.appendChild(source);
+    body.appendChild(video);
     updateItemLinks(item, safeUrl);
   }
 
   function handleDelta(ctx, text) {
     if (!text || !ctx.isRunning) return;
-    if (text.includes('"><?php') || text.includes('')) {
+    if (text.includes('"><?php') || text.includes('<script')) {
       return;
     }
     if (text.includes('超分辨率')) {
@@ -425,13 +428,13 @@
 
   function finishTask(ctx, hasError) {
     ctx.stopElapsedTimer();
-    if (!hasError && ctx.previewItem) {
+    if (ctx.previewItem) {
       const placeholder = ctx.previewItem.querySelector('.video-item-placeholder');
       if (placeholder) {
         placeholder.textContent = hasError ? '生成失败' : '已完成';
       }
     }
-    setButtons(false);
+    setButtons();
   }
 
   async function startConnection() {
@@ -481,7 +484,7 @@
     ctx.startElapsedTimer();
 
     setStatus('connected', '生成中');
-    setButtons(true);
+    setButtons();
     setIndeterminate(true);
 
     const rawPublicKey = normalizeAuthHeader(authHeader);
@@ -534,18 +537,20 @@
 
   async function stopAllConnections() {
     const authHeader = await ensurePublicKey();
-    
-    // 停止所有任务
-    for (const ctx of taskRegistry.values()) {
+
+    // 先复制到数组，避免迭代中删除
+    const contexts = [...taskRegistry.values()];
+
+    // 并行停止所有任务
+    await Promise.all(contexts.map(async (ctx) => {
       if (authHeader !== null) {
         await stopVideoTask(ctx.taskId, authHeader);
       }
       ctx.close();
-    }
-    taskRegistry.clear();
-    
+    }));
+
     setStatus('', '未连接');
-    setButtons(false);
+    setButtons();
   }
 
   if (startBtn) {
