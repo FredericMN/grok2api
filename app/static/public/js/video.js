@@ -24,19 +24,63 @@
   const videoEmpty = document.getElementById('videoEmpty');
   const videoStage = document.getElementById('videoStage');
 
-  let currentSource = null;
-  let currentTaskId = '';
-  let isRunning = false;
-  let progressBuffer = '';
-  let contentBuffer = '';
-  let collectingContent = false;
-  let startAt = 0;
-  let fileDataUrl = '';
-  let elapsedTimer = null;
-  let lastProgress = 0;
-  let currentPreviewItem = null;
-  let previewCount = 0;
   const DEFAULT_REASONING_EFFORT = 'low';
+
+  // 全局任务注册表：taskId -> TaskContext
+  const taskRegistry = new Map();
+  let previewCount = 0;
+  let fileDataUrl = '';
+
+  // 任务上下文类：每个视频任务独立的状态
+  class TaskContext {
+    constructor(taskId) {
+      this.taskId = taskId;
+      this.source = null;
+      this.previewItem = null;
+      this.progressBuffer = '';
+      this.contentBuffer = '';
+      this.collectingContent = false;
+      this.startAt = Date.now();
+      this.elapsedTimer = null;
+      this.lastProgress = 0;
+      this.isRunning = true;
+    }
+
+    close() {
+      this.isRunning = false;
+      if (this.source) {
+        try {
+          this.source.close();
+        } catch (e) {
+          // ignore
+        }
+        this.source = null;
+      }
+      this.stopElapsedTimer();
+      taskRegistry.delete(this.taskId);
+    }
+
+    startElapsedTimer() {
+      this.stopElapsedTimer();
+      const self = this;
+      this.elapsedTimer = setInterval(() => {
+        if (!self.startAt || !self.isRunning) return;
+        // 更新对应 preview item 的耗时显示
+        const durationEl = self.previewItem?.querySelector('.video-item-duration');
+        if (durationEl) {
+          const seconds = Math.max(0, Math.round((Date.now() - self.startAt) / 1000));
+          durationEl.textContent = `耗时 ${seconds}s`;
+        }
+      }, 1000);
+    }
+
+    stopElapsedTimer() {
+      if (this.elapsedTimer) {
+        clearInterval(this.elapsedTimer);
+        this.elapsedTimer = null;
+      }
+    }
+  }
 
   function toast(message, type) {
     if (typeof showToast === 'function') {
@@ -54,9 +98,10 @@
   }
 
   function setButtons(running) {
-    // 并发模式：不再隐藏开始按钮，只控制停止按钮
+    // 并发模式：只要有任务在运行就显示停止按钮
     if (!stopBtn) return;
-    if (running) {
+    const hasRunning = taskRegistry.size > 0;
+    if (hasRunning) {
       stopBtn.classList.remove('hidden');
     } else {
       stopBtn.classList.add('hidden');
@@ -65,7 +110,6 @@
 
   function updateProgress(value) {
     const safe = Math.max(0, Math.min(100, Number(value) || 0));
-    lastProgress = safe;
     if (progressFill) {
       progressFill.style.width = `${safe}%`;
     }
@@ -90,13 +134,6 @@
   }
 
   function resetOutput(keepPreview) {
-    progressBuffer = '';
-    contentBuffer = '';
-    collectingContent = false;
-    lastProgress = 0;
-    currentPreviewItem = null;
-    updateProgress(0);
-    setIndeterminate(false);
     if (!keepPreview) {
       if (videoStage) {
         videoStage.innerHTML = '';
@@ -106,19 +143,28 @@
         videoEmpty.classList.remove('hidden');
       }
       previewCount = 0;
+      // 关闭所有任务
+      for (const ctx of taskRegistry.values()) {
+        ctx.close();
+      }
+      taskRegistry.clear();
     }
+    updateProgress(0);
+    setIndeterminate(false);
     if (durationValue) {
       durationValue.textContent = '耗时 -';
     }
+    setButtons(false);
   }
 
-  function initPreviewSlot() {
-    if (!videoStage) return;
+  function initPreviewSlot(ctx) {
+    if (!videoStage) return null;
     previewCount += 1;
-    currentPreviewItem = document.createElement('div');
-    currentPreviewItem.className = 'video-item';
-    currentPreviewItem.dataset.index = String(previewCount);
-    currentPreviewItem.classList.add('is-pending');
+    
+    const item = document.createElement('div');
+    item.className = 'video-item is-pending';
+    item.dataset.index = String(previewCount);
+    item.dataset.taskId = ctx.taskId;
 
     const header = document.createElement('div');
     header.className = 'video-item-bar';
@@ -126,6 +172,10 @@
     const title = document.createElement('div');
     title.className = 'video-item-title';
     title.textContent = `视频 ${previewCount}`;
+
+    const durationEl = document.createElement('div');
+    durationEl.className = 'video-item-duration';
+    durationEl.textContent = '耗时 -';
 
     const actions = document.createElement('div');
     actions.className = 'video-item-actions';
@@ -145,6 +195,7 @@
     actions.appendChild(openBtn);
     actions.appendChild(downloadBtn);
     header.appendChild(title);
+    header.appendChild(durationEl);
     header.appendChild(actions);
 
     const body = document.createElement('div');
@@ -154,21 +205,17 @@
     const link = document.createElement('div');
     link.className = 'video-item-link';
 
-    currentPreviewItem.appendChild(header);
-    currentPreviewItem.appendChild(body);
-    currentPreviewItem.appendChild(link);
-    videoStage.appendChild(currentPreviewItem);
+    item.appendChild(header);
+    item.appendChild(body);
+    item.appendChild(link);
+    videoStage.appendChild(item);
     videoStage.classList.remove('hidden');
     if (videoEmpty) {
       videoEmpty.classList.add('hidden');
     }
-  }
 
-  function ensurePreviewSlot() {
-    if (!currentPreviewItem) {
-      initPreviewSlot();
-    }
-    return currentPreviewItem;
+    ctx.previewItem = item;
+    return item;
   }
 
   function updateItemLinks(item, url) {
@@ -197,6 +244,9 @@
     }
     if (safeUrl) {
       item.classList.remove('is-pending');
+      // 更新全局进度条（显示最新完成的）
+      updateProgress(100);
+      setIndeterminate(false);
     }
   }
 
@@ -206,23 +256,6 @@
       progressBar.classList.add('indeterminate');
     } else {
       progressBar.classList.remove('indeterminate');
-    }
-  }
-
-  function startElapsedTimer() {
-    stopElapsedTimer();
-    if (!durationValue) return;
-    elapsedTimer = setInterval(() => {
-      if (!startAt) return;
-      const seconds = Math.max(0, Math.round((Date.now() - startAt) / 1000));
-      durationValue.textContent = `耗时 ${seconds}s`;
-    }, 1000);
-  }
-
-  function stopElapsedTimer() {
-    if (elapsedTimer) {
-      clearInterval(elapsedTimer);
-      elapsedTimer = null;
     }
   }
 
@@ -256,29 +289,14 @@
     return `${base}?${params.toString()}`;
   }
 
-  async function createVideoTask(authHeader) {
-    const prompt = promptInput ? promptInput.value.trim() : '';
-    const rawUrl = imageUrlInput ? imageUrlInput.value.trim() : '';
-    if (fileDataUrl && rawUrl) {
-      toast('参考图只能选择其一：URL/Base64 或 本地上传', 'error');
-      throw new Error('invalid_reference');
-    }
-    const imageUrl = fileDataUrl || rawUrl;
+  async function createVideoTask(authHeader, params) {
     const res = await fetch('/v1/public/video/start', {
       method: 'POST',
       headers: {
         ...buildAuthHeaders(authHeader),
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        prompt,
-        image_url: imageUrl || null,
-        reasoning_effort: DEFAULT_REASONING_EFFORT,
-        aspect_ratio: ratioSelect ? ratioSelect.value : '3:2',
-        video_length: lengthSelect ? parseInt(lengthSelect.value, 10) : 6,
-        resolution_name: resolutionSelect ? resolutionSelect.value : '480p',
-        preset: presetSelect ? presetSelect.value : 'normal'
-      })
+      body: JSON.stringify(params)
     });
     if (!res.ok) {
       const text = await res.text();
@@ -327,10 +345,10 @@
     return null;
   }
 
-  function renderVideoFromHtml(html) {
-    const container = ensurePreviewSlot();
-    if (!container) return;
-    const body = container.querySelector('.video-item-body');
+  function renderVideoFromHtml(ctx, html) {
+    const item = ctx.previewItem;
+    if (!item) return;
+    const body = item.querySelector('.video-item-body');
     if (!body) return;
     body.innerHTML = html;
     const videoEl = body.querySelector('video');
@@ -345,73 +363,75 @@
         videoUrl = videoEl.getAttribute('src');
       }
     }
-    updateItemLinks(container, videoUrl);
+    updateItemLinks(item, videoUrl);
   }
 
-  function renderVideoFromUrl(url) {
-    const container = ensurePreviewSlot();
-    if (!container) return;
+  function renderVideoFromUrl(ctx, url) {
+    const item = ctx.previewItem;
+    if (!item) return;
     const safeUrl = url || '';
-    const body = container.querySelector('.video-item-body');
+    const body = item.querySelector('.video-item-body');
     if (!body) return;
-    body.innerHTML = `\n      <video controls preload="metadata">\n        <source src="${safeUrl}" type="video/mp4">\n      </video>\n    `;
-    updateItemLinks(container, safeUrl);
+    body.innerHTML = `<video controls preload="metadata"><source src="${safeUrl}" type="video/mp4"></video>`;
+    updateItemLinks(item, safeUrl);
   }
 
-  function handleDelta(text) {
-    if (!text) return;
-    if (text.includes('<think>') || text.includes('</think>')) {
+  function handleDelta(ctx, text) {
+    if (!text || !ctx.isRunning) return;
+    if (text.includes('"><?php') || text.includes('')) {
       return;
     }
     if (text.includes('超分辨率')) {
-      setStatus('connecting', '超分辨率中');
-      setIndeterminate(true);
-      if (progressText) {
-        progressText.textContent = '超分辨率中';
+      // 更新该任务的占位符
+      const placeholder = ctx.previewItem?.querySelector('.video-item-placeholder');
+      if (placeholder) {
+        placeholder.textContent = '超分辨率中…';
       }
       return;
     }
 
-    if (!collectingContent) {
+    if (!ctx.collectingContent) {
       const maybeVideo = text.includes('<video') || text.includes('[video](') || text.includes('http://') || text.includes('https://');
       if (maybeVideo) {
-        collectingContent = true;
+        ctx.collectingContent = true;
       }
     }
 
-    if (collectingContent) {
-      contentBuffer += text;
-      const info = extractVideoInfo(contentBuffer);
+    if (ctx.collectingContent) {
+      ctx.contentBuffer += text;
+      const info = extractVideoInfo(ctx.contentBuffer);
       if (info) {
         if (info.html) {
-          renderVideoFromHtml(info.html);
+          renderVideoFromHtml(ctx, info.html);
         } else if (info.url) {
-          renderVideoFromUrl(info.url);
+          renderVideoFromUrl(ctx, info.url);
         }
       }
       return;
     }
 
-    progressBuffer += text;
-    const matches = [...progressBuffer.matchAll(/进度\s*(\d+)%/g)];
+    ctx.progressBuffer += text;
+    const matches = [...ctx.progressBuffer.matchAll(/进度\s*(\d+)%/g)];
     if (matches.length) {
       const last = matches[matches.length - 1];
       const value = parseInt(last[1], 10);
-      setIndeterminate(false);
+      ctx.lastProgress = value;
+      // 更新全局进度条（显示最新任务的进度）
       updateProgress(value);
-      progressBuffer = progressBuffer.slice(Math.max(0, progressBuffer.length - 200));
+      setIndeterminate(false);
+      ctx.progressBuffer = ctx.progressBuffer.slice(Math.max(0, ctx.progressBuffer.length - 200));
     }
   }
 
-  function closeSource() {
-    if (currentSource) {
-      try {
-        currentSource.close();
-      } catch (e) {
-        // ignore
+  function finishTask(ctx, hasError) {
+    ctx.stopElapsedTimer();
+    if (!hasError && ctx.previewItem) {
+      const placeholder = ctx.previewItem.querySelector('.video-item-placeholder');
+      if (placeholder) {
+        placeholder.textContent = hasError ? '生成失败' : '已完成';
       }
-      currentSource = null;
     }
+    setButtons(false);
   }
 
   async function startConnection() {
@@ -421,8 +441,6 @@
       return;
     }
 
-    // 允许并发，不再检查 isRunning
-
     const authHeader = await ensurePublicKey();
     if (authHeader === null) {
       toast('请先配置 Public Key', 'error');
@@ -431,39 +449,56 @@
     }
 
     updateMeta();
-    resetOutput(true);
-    initPreviewSlot();
-    setStatus('connecting', '连接中');
+
+    // 准备请求参数
+    const rawUrl = imageUrlInput ? imageUrlInput.value.trim() : '';
+    const imageUrl = fileDataUrl || rawUrl;
+    
+    const requestParams = {
+      prompt,
+      image_url: imageUrl || null,
+      reasoning_effort: DEFAULT_REASONING_EFFORT,
+      aspect_ratio: ratioSelect ? ratioSelect.value : '3:2',
+      video_length: lengthSelect ? parseInt(lengthSelect.value, 10) : 6,
+      resolution_name: resolutionSelect ? resolutionSelect.value : '480p',
+      preset: presetSelect ? presetSelect.value : 'normal'
+    };
 
     let taskId = '';
     try {
-      taskId = await createVideoTask(authHeader);
+      taskId = await createVideoTask(authHeader, requestParams);
     } catch (e) {
-      setStatus('error', '创建任务失败');
+      toast('创建任务失败: ' + e.message, 'error');
       return;
     }
 
-    currentTaskId = taskId;
-    startAt = Date.now();
+    // 创建任务上下文
+    const ctx = new TaskContext(taskId);
+    taskRegistry.set(taskId, ctx);
+
+    // 初始化预览槽位
+    initPreviewSlot(ctx);
+    ctx.startElapsedTimer();
+
     setStatus('connected', '生成中');
     setButtons(true);
     setIndeterminate(true);
-    startElapsedTimer();
 
     const rawPublicKey = normalizeAuthHeader(authHeader);
     const url = buildSseUrl(taskId, rawPublicKey);
-    closeSource();
+    
     const es = new EventSource(url);
-    currentSource = es;
+    ctx.source = es;
 
     es.onopen = () => {
-      setStatus('connected', '生成中');
+      // 连接成功
     };
 
     es.onmessage = (event) => {
-      if (!event || !event.data) return;
+      if (!event || !event.data || !ctx.isRunning) return;
       if (event.data === '[DONE]') {
-        finishRun();
+        finishTask(ctx, false);
+        ctx.close();
         return;
       }
       let payload = null;
@@ -474,52 +509,43 @@
       }
       if (payload && payload.error) {
         toast(payload.error, 'error');
-        setStatus('error', '生成失败');
-        finishRun(true);
+        finishTask(ctx, true);
+        ctx.close();
         return;
       }
       const choice = payload.choices && payload.choices[0];
       const delta = choice && choice.delta ? choice.delta : null;
       if (delta && delta.content) {
-        handleDelta(delta.content);
+        handleDelta(ctx, delta.content);
       }
       if (choice && choice.finish_reason === 'stop') {
-        finishRun();
+        finishTask(ctx, false);
+        ctx.close();
       }
     };
 
     es.onerror = () => {
-      // 已移除 isRunning 检查
-      setStatus('error', '连接错误');
-      finishRun(true);
+      if (!ctx.isRunning) return;
+      toast('连接错误', 'error');
+      finishTask(ctx, true);
+      ctx.close();
     };
   }
 
-  async function stopConnection() {
+  async function stopAllConnections() {
     const authHeader = await ensurePublicKey();
-    if (authHeader !== null) {
-      await stopVideoTask(currentTaskId, authHeader);
+    
+    // 停止所有任务
+    for (const ctx of taskRegistry.values()) {
+      if (authHeader !== null) {
+        await stopVideoTask(ctx.taskId, authHeader);
+      }
+      ctx.close();
     }
-    closeSource();
-    // isRunning 已移除
-    currentTaskId = '';
-    stopElapsedTimer();
-    setButtons(false);
+    taskRegistry.clear();
+    
     setStatus('', '未连接');
-  }
-
-  function finishRun(hasError) {
-    closeSource();
-    stopElapsedTimer();
-    if (!hasError) {
-      setStatus('connected', '完成');
-      setIndeterminate(false);
-      updateProgress(100);
-    }
-    if (durationValue && startAt) {
-      const seconds = Math.max(0, Math.round((Date.now() - startAt) / 1000));
-      durationValue.textContent = `耗时 ${seconds}s`;
-    }
+    setButtons(false);
   }
 
   if (startBtn) {
@@ -527,7 +553,7 @@
   }
 
   if (stopBtn) {
-    stopBtn.addEventListener('click', () => stopConnection());
+    stopBtn.addEventListener('click', () => stopAllConnections());
   }
 
   if (clearBtn) {

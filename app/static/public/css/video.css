@@ -480,3 +480,10 @@ body {
   border-color: var(--video-outline);
   color: var(--accents-7);
 }
+
+.video-item-duration {
+  font-size: 10px;
+  color: rgba(226, 232, 240, 0.6);
+  margin-left: auto;
+  margin-right: 12px;
+}
