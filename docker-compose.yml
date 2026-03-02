@@ -21,6 +21,7 @@ services:
       - ./app/static/public/css/video.css:/app/app/static/public/css/video.css:ro
       - ./app_services_grok_services_video.py:/app/app/services/grok/services/video.py:ro
       - ./app/api/v1/image.py:/app/app/api/v1/image.py:ro
+      - ./app/services/grok/services/image_edit.py:/app/app/services/grok/services/image_edit.py:ro
     restart: unless-stopped
 
   # 如果出口 IP 不干净，可取消以下注释使用 Warp 作为落地代理
