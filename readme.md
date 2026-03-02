@@ -8,6 +8,10 @@
 > [!NOTE]
 > 开源项目欢迎大家支持二开和PR，但请保留原作者标识和前端标识，尊重他人劳动成果～！
 
+> [!TIP]
+> **本仓库为 Fork 版本**，包含视频并发修复、图像编辑页面等自定义功能。
+> 所有改动详情及上游合并指南请参阅 [CUSTOMIZATIONS.md](CUSTOMIZATIONS.md)。
+
 基于 **FastAPI** 重构的 Grok2API，全面适配最新 Web 调用格式，支持流/非流式对话、工具调用、图像生成/编辑、视频生成/超分（文生视频 / 图生视频）、深度思考，号池并发与自动负载均衡一体化。
 
 <img width="4800" height="4200" alt="image" src="https://github.com/user-attachments/assets/a6669674-8afe-4ae5-bf81-a2ec1f864233" />

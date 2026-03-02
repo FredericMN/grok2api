@@ -8,7 +8,7 @@ import base64
 from typing import Optional
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.services.grok.services.video import VideoService
 from app.core.exceptions import ValidationException, AppException
@@ -163,6 +163,20 @@ async def get_video(video_id: str):
         "status": "completed",
         "video_url": None,
     })
+
+
+@router.get("/v1/videos/{video_id}/content")
+async def get_video_content(video_id: str):
+    """视频文件下载 - 重定向到实际视频 URL"""
+    cached = _video_cache.get(video_id)
+    if cached and cached.get("video_url"):
+        return RedirectResponse(url=cached["video_url"])
+    raise AppException(
+        message="Video not found",
+        error_type="not_found",
+        code="video_not_found",
+        status_code=404,
+    )
 
 
 __all__ = ["router"]
