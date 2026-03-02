@@ -43,6 +43,10 @@ from app.api.v1.admin_api import router as admin_router
 from app.api.v1.public_api import router as public_router
 from app.api.pages import router as pages_router
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+from app.core.auth import is_public_enabled  # noqa: E402
+from app_public_api_image_edit import router as image_edit_public_router  # noqa: E402
 
 # 初始化日志
 setup_logging(
@@ -157,7 +161,15 @@ def create_app() -> FastAPI:
     # 注册管理与公共路由
     app.include_router(admin_router, prefix="/v1/admin")
     app.include_router(public_router, prefix="/v1/public")
+    app.include_router(image_edit_public_router, prefix="/v1/public")
     app.include_router(pages_router)
+
+    # Image edit page route (added directly to avoid mounting public.py)
+    @app.get("/image-edit", include_in_schema=False)
+    async def public_image_edit():
+        if not is_public_enabled():
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(APP_DIR / "static/public/pages/image-edit.html")
 
     return app
 

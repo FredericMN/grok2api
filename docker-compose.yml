@@ -24,6 +24,12 @@ services:
       - ./app/services/grok/services/image_edit.py:/app/app/services/grok/services/image_edit.py:ro
       - ./app_api_v1_video.py:/app/app/api/v1/video.py:ro
       - ./main.py:/app/main.py:ro
+      # Image Edit page
+      - ./app/static/public/pages/image-edit.html:/app/app/static/public/pages/image-edit.html:ro
+      - ./app/static/public/css/image-edit.css:/app/app/static/public/css/image-edit.css:ro
+      - ./app/static/public/js/image-edit.js:/app/app/static/public/js/image-edit.js:ro
+      - ./app_public_api_image_edit.py:/app/app_public_api_image_edit.py:ro
+      - ./app/static/common/html/public-header.html:/app/app/static/common/html/public-header.html:ro
     restart: unless-stopped
 
   # 如果出口 IP 不干净，可取消以下注释使用 Warp 作为落地代理
