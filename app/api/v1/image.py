@@ -29,6 +29,16 @@ ALLOWED_IMAGE_SIZES = {
     "1024x1024",
 }
 
+# 兼容外部调用方（如 waoo）传来的非标准 size，映射到 Grok 支持的最近似尺寸
+SIZE_COMPAT_MAP = {
+    # OpenAI gpt-image-1 尺寸 → Grok 最近似
+    "1536x1024": "1792x1024",   # 3:2 横屏
+    "1024x1536": "1024x1792",   # 2:3 竖屏
+    "256x256": "1024x1024",
+    "512x512": "1024x1024",
+    "auto": "1024x1024",
+}
+
 SIZE_TO_ASPECT = {
     "1280x720": "16:9",
     "720x1280": "9:16",
@@ -117,12 +127,17 @@ def _validate_common_request(
                 code="invalid_response_format",
             )
 
+    # size 兼容映射：将外部不支持的 size 静默映射到最近似的 Grok 支持 size
     if request.size and request.size not in ALLOWED_IMAGE_SIZES:
-        raise ValidationException(
-            message=f"size must be one of {sorted(ALLOWED_IMAGE_SIZES)}",
-            param="size",
-            code="invalid_size",
-        )
+        compat = SIZE_COMPAT_MAP.get(request.size)
+        if compat:
+            request.size = compat
+        else:
+            raise ValidationException(
+                message=f"size must be one of {sorted(ALLOWED_IMAGE_SIZES)}",
+                param="size",
+                code="invalid_size",
+            )
 
 
 def validate_generation_request(request: ImageGenerationRequest):
