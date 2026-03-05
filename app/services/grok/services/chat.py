@@ -512,6 +512,7 @@ class StreamProcessor(proc_base.BaseProcessor):
         self.fingerprint: str = ""
         self.rollout_id: str = ""
         self.think_opened: bool = False
+        self.think_closed_once: bool = False
         self.image_think_active: bool = False
         self.role_sent: bool = False
         self.filter_tags = get_config("app.filter_tags")
@@ -529,6 +530,16 @@ class StreamProcessor(proc_base.BaseProcessor):
         self._tool_buffer = ""
         self._tool_partial = ""
         self._tool_calls_seen = False
+        self._tool_call_index = 0
+
+    def _with_tool_index(self, tool_call: Any) -> Any:
+        if not isinstance(tool_call, dict):
+            return tool_call
+        if tool_call.get("index") is None:
+            tool_call = dict(tool_call)
+            tool_call["index"] = self._tool_call_index
+            self._tool_call_index += 1
+        return tool_call
 
     def _filter_tool_card(self, token: str) -> str:
         if not token or not self.tool_usage_enabled:
@@ -653,7 +664,7 @@ class StreamProcessor(proc_base.BaseProcessor):
             data = data[end_idx + len(end_tag) :]
             tool_call = parse_tool_call_block(self._tool_buffer, self.tools)
             if tool_call:
-                events.append(("tool", tool_call))
+                events.append(("tool", self._with_tool_index(tool_call)))
                 self._tool_calls_seen = True
             self._tool_buffer = ""
             self._tool_state = "text"
@@ -671,7 +682,7 @@ class StreamProcessor(proc_base.BaseProcessor):
         raw = f"{self._tool_buffer}{self._tool_partial}"
         tool_call = parse_tool_call_block(raw, self.tools)
         if tool_call:
-            events.append(("tool", tool_call))
+            events.append(("tool", self._with_tool_index(tool_call)))
             self._tool_calls_seen = True
         elif raw:
             events.append(("text", f"<tool_call>{raw}"))
@@ -760,6 +771,7 @@ class StreamProcessor(proc_base.BaseProcessor):
                     if self.image_think_active and self.think_opened:
                         yield self._sse("\n</think>\n")
                         self.think_opened = False
+                        self.think_closed_once = True
                     self.image_think_active = False
                     for url in proc_base._collect_images(mr):
                         parts = url.split("/")
@@ -800,10 +812,15 @@ class StreamProcessor(proc_base.BaseProcessor):
                 if (token := resp.get("token")) is not None:
                     if not token:
                         continue
+                    if is_thinking and self.think_closed_once and not self.image_think_active:
+                        continue
                     filtered = self._filter_token(token)
                     if not filtered:
                         continue
-                    in_think = is_thinking or self.image_think_active
+                    in_think = (
+                        (is_thinking and not self.think_closed_once)
+                        or self.image_think_active
+                    )
                     if in_think:
                         if not self.show_think:
                             continue
@@ -814,6 +831,7 @@ class StreamProcessor(proc_base.BaseProcessor):
                         if self.think_opened:
                             yield self._sse("\n</think>\n")
                             self.think_opened = False
+                            self.think_closed_once = True
 
                     if in_think:
                         yield self._sse(filtered)
@@ -831,6 +849,7 @@ class StreamProcessor(proc_base.BaseProcessor):
 
             if self.think_opened:
                 yield self._sse("</think>\n")
+                self.think_closed_once = True
 
             if self._tool_stream_enabled:
                 for kind, payload in self._flush_tool_stream():

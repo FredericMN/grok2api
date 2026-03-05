@@ -1,0 +1,26 @@
+services:
+  grok2api:
+    image: ghcr.io/chenyme/grok2api:latest
+    ports:
+      - "0.0.0.0:8100:8000"
+    environment:
+      TZ: Asia/Shanghai
+      LOG_LEVEL: INFO
+      SERVER_PORT: 8000
+      SERVER_WORKERS: 1
+      SERVER_STORAGE_TYPE: local
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./app/static/public/js/video.js:/app/app/static/public/js/video.js:ro
+      - ./app/static/public/css/video.css:/app/app/static/public/css/video.css:ro
+      - ./app_services_grok_services_video.py:/app/app/services/grok/services/video.py:ro
+      - ./app/api/v1/image.py:/app/app/api/v1/image.py:ro
+      - ./app/services/grok/services/image_edit.py:/app/app/services/grok/services/image_edit.py:ro
+      - ./app_api_v1_video.py:/app/app/api/v1/video.py:ro
+      - ./main.py:/app/main.py:ro
+      - ./app/static/public/pages/image-edit.html:/app/app/static/public/pages/image-edit.html:ro
+      - ./app/static/public/css/image-edit.css:/app/app/static/public/css/image-edit.css:ro
+      - ./app/static/public/js/image-edit.js:/app/app/static/public/js/image-edit.js:ro
+      - ./app_public_api_image_edit.py:/app/app_public_api_image_edit.py:ro
+      - ./app/static/common/html/public-header.html:/app/app/static/common/html/public-header.html:ro

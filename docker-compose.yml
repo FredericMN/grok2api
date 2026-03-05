@@ -1,35 +1,33 @@
 services:
   grok2api:
     container_name: grok2api
-    image: ghcr.io/chenyme/grok2api:latest
+    image: ${FORK_IMAGE:-ghcr.io/fredericmn/grok2api:latest}
+    build:
+      context: .
     ports:
-      - "0.0.0.0:8100:8000"
+      - "${HOST_PORT:-8000}:${SERVER_PORT:-8000}"
     environment:
       TZ: Asia/Shanghai
-      LOG_LEVEL: INFO
-      SERVER_PORT: 8000
-      SERVER_WORKERS: 1
-      SERVER_STORAGE_TYPE: local
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
+      SERVER_PORT: ${SERVER_PORT:-8000}
+      SERVER_WORKERS: ${SERVER_WORKERS:-1}
+      SERVER_STORAGE_TYPE: ${SERVER_STORAGE_TYPE:-local}
+      SERVER_STORAGE_URL: ${SERVER_STORAGE_URL:-}
+      FORK_EXTENSIONS: ${FORK_EXTENSIONS:-app.fork_ext.image_edit_ext,app.fork_ext.video_compat_ext,app.fork_ext.image_compat_ext,app.fork_ext.video_runtime_ext,app.fork_ext.frontend_overlay_ext}
       # 启用 CF 自动刷新: 取消以下三行注释，并取消底部 flaresolverr 服务的注释
       # FLARESOLVERR_URL: http://flaresolverr:8191
       # CF_REFRESH_INTERVAL: "600"
       # CF_TIMEOUT: "60"
+    command:
+      - sh
+      - -c
+      - >
+        granian --interface asgi --host "$${SERVER_HOST:-0.0.0.0}"
+        --port "$${SERVER_PORT:-8000}" --workers "$${SERVER_WORKERS:-1}" main:app
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./app/static/public/js/video.js:/app/app/static/public/js/video.js:ro
-      - ./app/static/public/css/video.css:/app/app/static/public/css/video.css:ro
-      - ./app_services_grok_services_video.py:/app/app/services/grok/services/video.py:ro
-      - ./app/api/v1/image.py:/app/app/api/v1/image.py:ro
-      - ./app/services/grok/services/image_edit.py:/app/app/services/grok/services/image_edit.py:ro
-      - ./app_api_v1_video.py:/app/app/api/v1/video.py:ro
-      - ./main.py:/app/main.py:ro
-      # Image Edit page
-      - ./app/static/public/pages/image-edit.html:/app/app/static/public/pages/image-edit.html:ro
-      - ./app/static/public/css/image-edit.css:/app/app/static/public/css/image-edit.css:ro
-      - ./app/static/public/js/image-edit.js:/app/app/static/public/js/image-edit.js:ro
-      - ./app_public_api_image_edit.py:/app/app_public_api_image_edit.py:ro
-      - ./app/static/common/html/public-header.html:/app/app/static/common/html/public-header.html:ro
     restart: unless-stopped
 
   # 如果出口 IP 不干净，可取消以下注释使用 Warp 作为落地代理

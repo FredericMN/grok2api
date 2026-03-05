@@ -1,0 +1,15 @@
+# Core touch budget allowlist
+main.py
+app/fork_ext/**
+app_api_v1_video.py
+app_public_api_image_edit.py
+app_services_grok_services_video.py
+fork_overlays/**
+scripts/**
+.github/workflows/upstream-watch.yml
+.github/workflows/touch-budget.yml
+.github/touch-budget-allowlist.txt
+CUSTOMIZATIONS.md
+readme.md
+docker-compose.yml
+docker-compose.legacy-override.yml
