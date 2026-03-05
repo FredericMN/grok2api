@@ -5,6 +5,7 @@ Video Generation API 路由 - OpenAI 兼容
 
 import uuid
 import base64
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Request
@@ -19,6 +20,8 @@ router = APIRouter(tags=["Videos"])
 
 # 内存缓存：存储已完成的视频结果，供轮询使用
 _video_cache: dict = {}
+VIDEO_CACHE_TTL_SECONDS = 1800
+VIDEO_CACHE_MAX_ITEMS = 200
 
 SIZE_TO_ASPECT = {
     "1280x720": "16:9",
@@ -34,7 +37,24 @@ SECONDS_MAP = {4: 6, 8: 10, 12: 15, 6: 6, 10: 10, 15: 15}
 def _resolve_params(prompt, model, seconds, size, aspect_ratio=None, resolution=None, preset=None):
     if not prompt or not prompt.strip():
         raise ValidationException(message="Prompt cannot be empty", param="prompt", code="empty_prompt")
-    video_length = SECONDS_MAP.get(int(seconds) if seconds else 4, 6)
+    if seconds in (None, ""):
+        seconds_int = 4
+    else:
+        if isinstance(seconds, bool):
+            raise ValidationException(
+                message="seconds must be an integer",
+                param="seconds",
+                code="invalid_value",
+            )
+        try:
+            seconds_int = int(seconds)
+        except (TypeError, ValueError):
+            raise ValidationException(
+                message="seconds must be an integer",
+                param="seconds",
+                code="invalid_value",
+            )
+    video_length = SECONDS_MAP.get(seconds_int, 6)
     if aspect_ratio:
         ar = aspect_ratio
     elif size and size in SIZE_TO_ASPECT:
@@ -48,6 +68,43 @@ def _resolve_params(prompt, model, seconds, size, aspect_ratio=None, resolution=
         "resolution": resolution or "480p",
         "preset": preset or "normal",
     }
+
+
+def _cleanup_video_cache(now: float) -> None:
+    expired_ids = [
+        key
+        for key, value in _video_cache.items()
+        if now - float(value.get("_cached_at", now)) > VIDEO_CACHE_TTL_SECONDS
+    ]
+    for key in expired_ids:
+        _video_cache.pop(key, None)
+
+    overflow = len(_video_cache) - VIDEO_CACHE_MAX_ITEMS
+    if overflow > 0:
+        oldest_keys = sorted(
+            _video_cache.keys(),
+            key=lambda key: float(_video_cache[key].get("_cached_at", now)),
+        )[:overflow]
+        for key in oldest_keys:
+            _video_cache.pop(key, None)
+
+
+def _sanitize_cached_payload(payload: dict) -> dict:
+    return {k: v for k, v in payload.items() if not str(k).startswith("_")}
+
+
+def _cache_video_result(response_id: str, payload: dict) -> None:
+    now = time.time()
+    item = dict(payload)
+    item["_cached_at"] = now
+    _video_cache[response_id] = item
+    _cleanup_video_cache(now)
+
+
+def _get_cached_video(video_id: str) -> Optional[dict]:
+    now = time.time()
+    _cleanup_video_cache(now)
+    return _video_cache.get(video_id)
 
 
 async def _run_video(prompt, params, image_url=None):
@@ -89,14 +146,14 @@ async def _run_video(prompt, params, image_url=None):
             video_url = content.strip()
 
     # 缓存结果供轮询使用
-    _video_cache[response_id] = {
+    _cache_video_result(response_id, {
         "id": response_id,
         "status": "completed",
         "video_url": video_url,
         "content": content,
         "model": params["model"],
         "created": result.get("created", 0),
-    }
+    })
 
     return JSONResponse(content={
         "id": response_id,
@@ -153,9 +210,9 @@ async def create_video_fallback(request: Request):
 @router.get("/v1/videos/{video_id}")
 async def get_video(video_id: str):
     """轮询视频状态 - waoowaoo 用此接口查询结果"""
-    cached = _video_cache.get(video_id)
+    cached = _get_cached_video(video_id)
     if cached:
-        return JSONResponse(content=cached)
+        return JSONResponse(content=_sanitize_cached_payload(cached))
     # 不在缓存中（可能是重启后），返回 completed 但无 URL
     # waoowaoo 会 fallback 到 /videos/{id}/content
     return JSONResponse(content={
@@ -168,7 +225,7 @@ async def get_video(video_id: str):
 @router.get("/v1/videos/{video_id}/content")
 async def get_video_content(video_id: str):
     """视频文件下载 - 重定向到实际视频 URL"""
-    cached = _video_cache.get(video_id)
+    cached = _get_cached_video(video_id)
     if cached and cached.get("video_url"):
         return RedirectResponse(url=cached["video_url"])
     raise AppException(

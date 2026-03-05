@@ -10,6 +10,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.core.auth import verify_api_key
 from app.core.exceptions import AppException, ErrorType, ValidationException
@@ -104,7 +105,8 @@ async def edit_image_compat(
     edit_request.response_format = response_format
     response_field = image_api.response_field_name(response_format)
 
-    upload_files = [item for item in image_items if isinstance(item, UploadFile)]
+    # request.form() returns Starlette UploadFile objects.
+    upload_files = [item for item in image_items if isinstance(item, StarletteUploadFile)]
     image_api.validate_edit_request(edit_request, upload_files)
 
     max_image_bytes = 50 * 1024 * 1024

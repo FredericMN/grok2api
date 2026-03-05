@@ -78,5 +78,6 @@ The goal is to keep upstream compatibility while preserving local custom feature
 - Allowlist file: `.github/touch-budget-allowlist.txt`
 
 ## Collaboration Preference
+- Always communicate with users in friendly Chinese.
 - Unless explicitly requested, do not auto-push.
 - Default delivery: local commit + clear summary + suggested push/PR command.

@@ -96,6 +96,42 @@ def _match_public_key(credentials: str, public_key: str) -> bool:
     return False
 
 
+def verify_public_key_value(credentials: Optional[str]) -> Optional[str]:
+    """
+    验证 Public Key 字符串（用于 query 参数等非 Header 场景）。
+
+    规则与 verify_public_key 保持一致。
+    """
+    public_key = get_public_api_key()
+    public_enabled = is_public_enabled()
+
+    if not public_key:
+        if public_enabled:
+            return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Public access is disabled",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    value = (credentials or "").strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if _match_public_key(value, public_key):
+        return value
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 async def verify_api_key(
     auth: Optional[HTTPAuthorizationCredentials] = Security(security),
 ) -> Optional[str]:
@@ -169,30 +205,4 @@ async def verify_public_key(
 
     默认不公开，需配置 public_key 才能访问；若开启 public_enabled 且未配置 public_key，则放开访问。
     """
-    public_key = get_public_api_key()
-    public_enabled = is_public_enabled()
-
-    if not public_key:
-        if public_enabled:
-            return None
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Public access is disabled",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not auth:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if _match_public_key(auth.credentials, public_key):
-        return auth.credentials
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid authentication token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    return verify_public_key_value(auth.credentials if auth else None)

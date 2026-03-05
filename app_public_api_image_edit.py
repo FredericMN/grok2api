@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.core.auth import verify_public_key
+from app.core.auth import verify_public_key, verify_public_key_value
 from app.core.logger import logger
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
@@ -170,9 +170,8 @@ async def public_image_edit_sse(
     task_id: str = Query(""),
     public_key: str = Query(""),
 ):
-    # Validate public_key (same as verify_public_key but from query param)
-    if not public_key:
-        raise HTTPException(status_code=401, detail="public_key is required")
+    # Validate public_key from query params using the same rules as header auth.
+    verify_public_key_value(public_key or None)
 
     session = await _get_session(task_id)
     if not session:
