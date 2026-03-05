@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Union
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
@@ -27,16 +27,6 @@ ALLOWED_IMAGE_SIZES = {
     "1792x1024",
     "1024x1792",
     "1024x1024",
-}
-
-# 兼容外部调用方（如 waoo）传来的非标准 size，映射到 Grok 支持的最近似尺寸
-SIZE_COMPAT_MAP = {
-    # OpenAI gpt-image-1 尺寸 → Grok 最近似
-    "1536x1024": "1792x1024",   # 3:2 横屏
-    "1024x1536": "1024x1792",   # 2:3 竖屏
-    "256x256": "1024x1024",
-    "512x512": "1024x1024",
-    "auto": "1024x1024",
 }
 
 SIZE_TO_ASPECT = {
@@ -127,17 +117,12 @@ def _validate_common_request(
                 code="invalid_response_format",
             )
 
-    # size 兼容映射：将外部不支持的 size 静默映射到最近似的 Grok 支持 size
     if request.size and request.size not in ALLOWED_IMAGE_SIZES:
-        compat = SIZE_COMPAT_MAP.get(request.size)
-        if compat:
-            request.size = compat
-        else:
-            raise ValidationException(
-                message=f"size must be one of {sorted(ALLOWED_IMAGE_SIZES)}",
-                param="size",
-                code="invalid_size",
-            )
+        raise ValidationException(
+            message=f"size must be one of {sorted(ALLOWED_IMAGE_SIZES)}",
+            param="size",
+            code="invalid_size",
+        )
 
 
 def validate_generation_request(request: ImageGenerationRequest):
@@ -206,14 +191,13 @@ def resolve_aspect_ratio(size: str) -> str:
 
 def validate_edit_request(request: ImageEditRequest, images: List[UploadFile]):
     """验证图片编辑请求参数"""
-    if request.model not in ("grok-imagine-1.0-edit", "grok-imagine-1.0"):
+    if request.model != "grok-imagine-1.0-edit":
         raise ValidationException(
             message=("The model `grok-imagine-1.0-edit` is required for image edits."),
             param="model",
             code="model_not_supported",
         )
-    effective_model = "grok-imagine-1.0-edit" if request.model == "grok-imagine-1.0" else request.model
-    model_info = ModelService.get(effective_model)
+    model_info = ModelService.get(request.model)
     if not model_info or not model_info.is_image_edit:
         edit_models = [m.model_id for m in ModelService.MODELS if m.is_image_edit]
         raise ValidationException(
@@ -292,8 +276,7 @@ async def create_image(request: ImageGenerationRequest):
 
     # 获取 token 和模型信息
     token_mgr, token = await _get_token(request.model)
-    effective_model = "grok-imagine-1.0-edit" if request.model == "grok-imagine-1.0" else request.model
-    model_info = ModelService.get(effective_model)
+    model_info = ModelService.get(request.model)
     aspect_ratio = resolve_aspect_ratio(request.size)
 
     result = await ImageGenerationService().generate(
@@ -334,11 +317,11 @@ async def create_image(request: ImageGenerationRequest):
 
 @router.post("/images/edits")
 async def edit_image(
-    request: Request,
     prompt: str = Form(...),
+    image: List[UploadFile] = File(...),
     model: Optional[str] = Form("grok-imagine-1.0-edit"),
     n: int = Form(1),
-    size: str = Form("720x1280"),
+    size: str = Form("1024x1024"),
     quality: str = Form("standard"),
     response_format: Optional[str] = Form(None),
     style: Optional[str] = Form(None),
@@ -349,13 +332,6 @@ async def edit_image(
 
     同官方 API 格式，仅支持 multipart/form-data 文件上传
     """
-    # 兼容 OpenAI SDK 发送的 image[] 字段名
-    form = await request.form()
-    image = list(form.getlist('image')) or list(form.getlist('image[]'))
-    if not image:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail={'error': {'message': 'image field required', 'param': 'image', 'code': 'missing_field'}})
-
     if response_format is None:
         response_format = resolve_response_format(None)
 
@@ -436,9 +412,8 @@ async def edit_image(
         images.append(f"data:{mime};base64,{b64}")
 
     # 获取 token 和模型信息
-    _eff_edit_model = "grok-imagine-1.0-edit" if edit_request.model == "grok-imagine-1.0" else edit_request.model
-    token_mgr, token = await _get_token(_eff_edit_model)
-    model_info = ModelService.get(_eff_edit_model)
+    token_mgr, token = await _get_token(edit_request.model)
+    model_info = ModelService.get(edit_request.model)
 
     result = await ImageEditService().edit(
         token_mgr=token_mgr,
@@ -449,7 +424,6 @@ async def edit_image(
         n=edit_request.n,
         response_format=response_format,
         stream=bool(edit_request.stream),
-        size=edit_request.size or "720x1280",
     )
 
     if result.stream:

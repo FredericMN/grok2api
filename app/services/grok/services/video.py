@@ -35,9 +35,6 @@ from app.services.reverse.video_upscale import VideoUpscaleReverse
 from app.services.reverse.utils.session import ResettableSession
 from app.services.token.manager import BASIC_POOL_NAME
 
-
-# 全局已使用 token 集合，避免并发时重复使用同一 token
-_used_tokens: set = set()
 _VIDEO_SEMAPHORE = None
 _VIDEO_SEM_VALUE = 0
 
@@ -121,7 +118,6 @@ class VideoService:
         logger.info(
             f"Video generation: prompt='{prompt[:50]}...', ratio={aspect_ratio}, length={video_length}s, preset={preset}"
         )
-        logger.info(f"[DEBUG] videoGenModelConfig aspectRatio={aspect_ratio}")
         post_id = await self.create_post(token, prompt)
         mode_map = {
             "fun": "--mode=extremely-crazy",
@@ -266,7 +262,6 @@ class VideoService:
                 resolution=resolution,
                 video_length=video_length,
                 pool_candidates=pool_candidates,
-                exclude=_used_tokens,
             )
 
             if not token_info:
@@ -281,7 +276,6 @@ class VideoService:
 
             # Extract token string from TokenInfo.
             token = token_info.token
-            _used_tokens.add(token)
             if token.startswith("sso="):
                 token = token[4:]
             pool_name = token_mgr.get_pool_name_for_token(token)
@@ -392,6 +386,7 @@ class VideoStreamProcessor(BaseProcessor):
         super().__init__(model, token)
         self.response_id: Optional[str] = None
         self.think_opened: bool = False
+        self.think_closed_once: bool = False
         self.role_sent: bool = False
 
         self.show_think = bool(show_think)
@@ -477,6 +472,8 @@ class VideoStreamProcessor(BaseProcessor):
                     self.role_sent = True
 
                 if token := resp.get("token"):
+                    if is_thinking and self.think_closed_once:
+                        continue
                     if is_thinking:
                         if not self.show_think:
                             continue
@@ -487,11 +484,14 @@ class VideoStreamProcessor(BaseProcessor):
                         if self.think_opened:
                             yield self._sse("\n</think>\n")
                             self.think_opened = False
+                            self.think_closed_once = True
                     yield self._sse(token)
                     continue
 
                 if video_resp := resp.get("streamingVideoGenerationResponse"):
                     progress = video_resp.get("progress", 0)
+                    if is_thinking and self.think_closed_once:
+                        continue
 
                     if is_thinking:
                         if not self.show_think:
@@ -503,6 +503,7 @@ class VideoStreamProcessor(BaseProcessor):
                         if self.think_opened:
                             yield self._sse("\n</think>\n")
                             self.think_opened = False
+                            self.think_closed_once = True
                     if self.show_think:
                         yield self._sse(f"正在生成视频中，当前进度{progress}%\n")
 
@@ -513,6 +514,7 @@ class VideoStreamProcessor(BaseProcessor):
                         if self.think_opened:
                             yield self._sse("\n</think>\n")
                             self.think_opened = False
+                            self.think_closed_once = True
 
                         if video_url:
                             if self.upscale_on_finish:
@@ -529,6 +531,7 @@ class VideoStreamProcessor(BaseProcessor):
 
             if self.think_opened:
                 yield self._sse("</think>\n")
+                self.think_closed_once = True
             yield self._sse(finish="stop")
             yield "data: [DONE]\n\n"
         except asyncio.CancelledError:

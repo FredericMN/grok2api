@@ -1,0 +1,27 @@
+name: Touch Budget
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  touch-budget:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Enforce touch budget
+        run: |
+          python scripts/check_touch_budget.py

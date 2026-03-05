@@ -1,0 +1,43 @@
+name: Upstream Watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"
+
+jobs:
+  upstream-watch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/chenyme/grok2api.git || true
+
+      - name: Generate report
+        run: |
+          python scripts/sync_upstream.py --base-ref main --upstream-ref upstream/main --report-path reports/upstream-watch.md
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-watch-report
+          path: reports/upstream-watch.md
+
+      - name: Job summary
+        run: |
+          echo "## Upstream Watch" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat reports/upstream-watch.md >> $GITHUB_STEP_SUMMARY

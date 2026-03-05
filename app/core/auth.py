@@ -3,7 +3,7 @@ API 认证模块
 """
 
 import hashlib
-from typing import Optional
+from typing import Optional, Iterable
 from fastapi import HTTPException, status, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -30,6 +30,27 @@ def get_admin_api_key() -> str:
     """
     api_key = get_config("app.api_key", DEFAULT_API_KEY)
     return api_key or ""
+
+
+def _normalize_api_keys(value: Optional[object]) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        return [part.strip() for part in raw.split(",") if part.strip()]
+    if isinstance(value, Iterable):
+        keys: list[str] = []
+        for item in value:
+            if not item:
+                continue
+            if isinstance(item, str):
+                stripped = item.strip()
+                if stripped:
+                    keys.append(stripped)
+        return keys
+    return []
 
 def get_app_key() -> str:
     """
@@ -75,6 +96,42 @@ def _match_public_key(credentials: str, public_key: str) -> bool:
     return False
 
 
+def verify_public_key_value(credentials: Optional[str]) -> Optional[str]:
+    """
+    验证 Public Key 字符串（用于 query 参数等非 Header 场景）。
+
+    规则与 verify_public_key 保持一致。
+    """
+    public_key = get_public_api_key()
+    public_enabled = is_public_enabled()
+
+    if not public_key:
+        if public_enabled:
+            return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Public access is disabled",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    value = (credentials or "").strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if _match_public_key(value, public_key):
+        return value
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 async def verify_api_key(
     auth: Optional[HTTPAuthorizationCredentials] = Security(security),
 ) -> Optional[str]:
@@ -84,7 +141,8 @@ async def verify_api_key(
     如果 config.toml 中未配置 api_key，则不启用认证。
     """
     api_key = get_admin_api_key()
-    if not api_key:
+    api_keys = _normalize_api_keys(api_key)
+    if not api_keys:
         return None
 
     if not auth:
@@ -95,7 +153,7 @@ async def verify_api_key(
         )
 
     # 标准 api_key 验证
-    if auth.credentials == api_key:
+    if auth.credentials in api_keys:
         return auth.credentials
 
     raise HTTPException(
@@ -147,30 +205,4 @@ async def verify_public_key(
 
     默认不公开，需配置 public_key 才能访问；若开启 public_enabled 且未配置 public_key，则放开访问。
     """
-    public_key = get_public_api_key()
-    public_enabled = is_public_enabled()
-
-    if not public_key:
-        if public_enabled:
-            return None
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Public access is disabled",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not auth:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if _match_public_key(auth.credentials, public_key):
-        return auth.credentials
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid authentication token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    return verify_public_key_value(auth.credentials if auth else None)

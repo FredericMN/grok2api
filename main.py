@@ -37,16 +37,18 @@ from app.api.v1.image import router as image_router  # noqa: E402
 from app.api.v1.files import router as files_router  # noqa: E402
 from app.api.v1.models import router as models_router  # noqa: E402
 from app.api.v1.response import router as responses_router  # noqa: E402
-from app.api.v1.video import router as video_router  # noqa: E402
 from app.services.token import get_scheduler  # noqa: E402
 from app.api.v1.admin_api import router as admin_router
 from app.api.v1.public_api import router as public_router
 from app.api.pages import router as pages_router
+from app.fork_ext.manager import (  # noqa: E402
+    parse_fork_extensions,
+    load_fork_extensions,
+    apply_runtime_patches,
+    register_pre_routes,
+    register_post_routes,
+)
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse  # noqa: E402
-from fastapi import HTTPException  # noqa: E402
-from app.core.auth import is_public_enabled  # noqa: E402
-from app_public_api_image_edit import router as image_edit_public_router  # noqa: E402
 
 # 初始化日志
 setup_logging(
@@ -94,6 +96,7 @@ async def lifespan(app: FastAPI):
         })
 
     from app.services.cf_refresh import start as cf_refresh_start
+
     cf_refresh_start()
 
     logger.info("Application startup complete.")
@@ -103,6 +106,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Grok2API...")
 
     from app.services.cf_refresh import stop as cf_refresh_stop
+
     cf_refresh_stop()
 
     from app.core.storage import StorageFactory
@@ -122,6 +126,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    extension_names = parse_fork_extensions(os.getenv("FORK_EXTENSIONS"))
+    extension_modules = load_fork_extensions(extension_names, logger)
+    apply_runtime_patches(extension_modules, logger)
+
     # CORS 配置
     app.add_middleware(
         CORSMiddleware,
@@ -137,6 +145,9 @@ def create_app() -> FastAPI:
     # 注册异常处理器
     register_exception_handlers(app)
 
+    # 扩展预注册（用于同路径覆盖）
+    register_pre_routes(extension_modules, logger, app)
+
     # 注册路由
     app.include_router(
         chat_router, prefix="/v1", dependencies=[Depends(verify_api_key)]
@@ -151,7 +162,6 @@ def create_app() -> FastAPI:
         responses_router, prefix="/v1", dependencies=[Depends(verify_api_key)]
     )
     app.include_router(files_router, prefix="/v1/files")
-    app.include_router(video_router, dependencies=[Depends(verify_api_key)])
 
     # 静态文件服务
     static_dir = APP_DIR / "static"
@@ -161,15 +171,18 @@ def create_app() -> FastAPI:
     # 注册管理与公共路由
     app.include_router(admin_router, prefix="/v1/admin")
     app.include_router(public_router, prefix="/v1/public")
-    app.include_router(image_edit_public_router, prefix="/v1/public")
     app.include_router(pages_router)
 
-    # Image edit page route (added directly to avoid mounting public.py)
-    @app.get("/image-edit", include_in_schema=False)
-    async def public_image_edit():
-        if not is_public_enabled():
-            raise HTTPException(status_code=404, detail="Not Found")
-        return FileResponse(APP_DIR / "static/public/pages/image-edit.html")
+    # 健康检查接口（用于 Render、服务器保活检测等）
+    @app.get("/health")
+    def health():
+        """
+        健康检查接口，用于服务器保活或 Render 自动检测
+        """
+        return {"status": "ok"}
+
+    # 扩展后注册（用于新增路由挂载）
+    register_post_routes(extension_modules, logger, app)
 
     return app
 
@@ -178,27 +191,17 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    import uvicorn
-
     host = os.getenv("SERVER_HOST", "0.0.0.0")
     port = int(os.getenv("SERVER_PORT", "8000"))
     workers = int(os.getenv("SERVER_WORKERS", "1"))
-
-    # 平台检查
-    is_windows = platform.system() == "Windows"
-
-    # 自动降级
-    if is_windows and workers > 1:
-        logger.warning(
-            f"Windows platform detected. Multiple workers ({workers}) is not supported. "
-            "Using single worker instead."
-        )
-        workers = 1
-
-    uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        workers=workers,
-        log_level=os.getenv("LOG_LEVEL", "INFO").lower(),
+    log_level = os.getenv("LOG_LEVEL", "INFO").lower()
+    logger.error(
+        "Direct startup via `python main.py` is disabled. "
+        "Please run with Granian CLI to avoid Python wrapper issues."
     )
+    logger.error(
+        "Use: uv run granian --interface asgi "
+        f"--host {host} --port {port} --workers {workers} "
+        f"--log-level {log_level} main:app"
+    )
+    raise SystemExit(1)
