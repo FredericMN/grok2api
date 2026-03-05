@@ -60,7 +60,10 @@ COPY --from=builder /opt/venv /opt/venv
 
 COPY config.defaults.toml ./
 COPY app ./app
+COPY fork_overlays ./fork_overlays
 COPY main.py ./
+COPY app_api_v1_video.py ./
+COPY app_public_api_image_edit.py ./
 COPY scripts ./scripts
 
 RUN mkdir -p /app/data /app/logs \
