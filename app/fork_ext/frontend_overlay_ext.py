@@ -30,6 +30,11 @@ async def overlay_public_header():
     return FileResponse(_resolve_asset("common/html/public-header.html"))
 
 
+@router.get("/static/common/js/public-header.js")
+async def overlay_public_header_js():
+    return FileResponse(_resolve_asset("common/js/public-header.js"))
+
+
 @router.get("/static/public/js/video.js")
 async def overlay_video_js():
     return FileResponse(_resolve_asset("public/js/video.js"))

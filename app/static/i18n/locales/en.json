@@ -75,6 +75,7 @@
     "chat": "Chat",
     "imagine": "Imagine Gallery",
     "video": "Video Generation",
+    "imageEdit": "Image Edit",
     "voice": "LiveKit Voice",
     "feedback": "Feedback",
     "logout": "Logout",

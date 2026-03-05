@@ -75,6 +75,7 @@
     "chat": "Chat 聊天",
     "imagine": "Imagine 瀑布流",
     "video": "Video 视频生成",
+    "imageEdit": "Edit 图像编辑",
     "voice": "LiveKit 陪聊",
     "feedback": "反馈",
     "logout": "退出",

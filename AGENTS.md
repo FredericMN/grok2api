@@ -43,11 +43,18 @@ The goal is to keep upstream compatibility while preserving local custom feature
   - `/image-edit`
 - Frontend/static overlay paths:
   - `/static/common/html/public-header.html`
+  - `/static/common/js/public-header.js`
   - `/static/public/js/video.js`
   - `/static/public/css/video.css`
   - `/static/public/pages/image-edit.html`
   - `/static/public/js/image-edit.js`
   - `/static/public/css/image-edit.css`
+
+## Frontend Overlay Guardrails
+- Keep `/image-edit` entry visible in public header for `chat/imagine/video/voice` pages.
+- For header/navigation changes, prefer overlay files under `fork_overlays/static/common/` instead of upstream static files.
+- Keep a JS fallback that injects `/image-edit` nav when header template drift or cache causes missing entry.
+- When changing shared header JS, bump `public-header.js?v=` on public pages to force cache refresh.
 
 ## Upstream Sync Workflow
 1. Fetch remotes:
