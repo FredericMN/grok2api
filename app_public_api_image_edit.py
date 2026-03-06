@@ -3,8 +3,6 @@ Public Image Edit API - session-based SSE endpoints.
 Modeled after app/api/v1/public_api/video.py
 """
 
-import asyncio
-import time
 import uuid
 from typing import Optional, List
 
@@ -17,81 +15,72 @@ from pydantic import BaseModel
 
 from app.core.auth import verify_public_key, verify_public_key_value
 from app.core.logger import logger
+from app.fork_ext.runtime_state import (
+    RuntimeStateLimitExceeded,
+    delete_runtime_item,
+    delete_runtime_items,
+    get_runtime_item,
+    put_runtime_item,
+)
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
 from app.services.token import get_token_manager
 
 router = APIRouter()
 
+IMAGE_EDIT_SESSION_NAMESPACE = "image_edit_sessions"
 IMAGE_EDIT_SESSION_TTL = 600
 MAX_SESSIONS = 50
-MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20MB per image in base64 (~15MB raw)
-_IMAGE_EDIT_SESSIONS: dict[str, dict] = {}
-_IMAGE_EDIT_SESSIONS_LOCK = asyncio.Lock()
+MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20MB data URI payload (~15MB raw)
 
 ALLOWED_SIZES = {"1280x720", "720x1280", "1792x1024", "1024x1792", "1024x1024"}
 ALLOWED_MIMES = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
 _DATA_URI_RE = re.compile(r"^data:(image/(?:png|jpe?g|webp));base64,[A-Za-z0-9+/]+=*$", re.DOTALL)
 
 
-async def _clean_sessions(now: float) -> None:
-    expired = [
-        k for k, v in _IMAGE_EDIT_SESSIONS.items()
-        if now - float(v.get("created_at", 0)) > IMAGE_EDIT_SESSION_TTL
-    ]
-    for k in expired:
-        _IMAGE_EDIT_SESSIONS.pop(k, None)
-
-
 async def _new_session(prompt: str, images: List[str], size: str, n: int) -> str:
     task_id = uuid.uuid4().hex
-    now = time.time()
-    async with _IMAGE_EDIT_SESSIONS_LOCK:
-        await _clean_sessions(now)
-        if len(_IMAGE_EDIT_SESSIONS) >= MAX_SESSIONS:
-            raise HTTPException(status_code=429, detail="Too many active sessions")
-        _IMAGE_EDIT_SESSIONS[task_id] = {
-            "prompt": prompt,
-            "images": images,
-            "size": size,
-            "n": n,
-            "created_at": now,
-        }
+    try:
+        await put_runtime_item(
+            IMAGE_EDIT_SESSION_NAMESPACE,
+            task_id,
+            {
+                "prompt": prompt,
+                "images": images,
+                "size": size,
+                "n": n,
+            },
+            ttl_seconds=IMAGE_EDIT_SESSION_TTL,
+            timestamp_key="created_at",
+            max_items=MAX_SESSIONS,
+        )
+    except RuntimeStateLimitExceeded as exc:
+        raise HTTPException(status_code=429, detail="Too many active sessions") from exc
     return task_id
 
 
 async def _get_session(task_id: str) -> Optional[dict]:
     if not task_id:
         return None
-    now = time.time()
-    async with _IMAGE_EDIT_SESSIONS_LOCK:
-        await _clean_sessions(now)
-        info = _IMAGE_EDIT_SESSIONS.get(task_id)
-        if not info:
-            return None
-        if now - float(info.get("created_at", 0)) > IMAGE_EDIT_SESSION_TTL:
-            _IMAGE_EDIT_SESSIONS.pop(task_id, None)
-            return None
-        return dict(info)
+    info = await get_runtime_item(
+        IMAGE_EDIT_SESSION_NAMESPACE,
+        task_id,
+        ttl_seconds=IMAGE_EDIT_SESSION_TTL,
+        timestamp_key="created_at",
+    )
+    return dict(info) if info else None
 
 
 async def _drop_session(task_id: str) -> None:
     if not task_id:
         return
-    async with _IMAGE_EDIT_SESSIONS_LOCK:
-        _IMAGE_EDIT_SESSIONS.pop(task_id, None)
+    await delete_runtime_item(IMAGE_EDIT_SESSION_NAMESPACE, task_id)
 
 
 async def _drop_sessions(task_ids: List[str]) -> int:
     if not task_ids:
         return 0
-    removed = 0
-    async with _IMAGE_EDIT_SESSIONS_LOCK:
-        for tid in task_ids:
-            if tid and tid in _IMAGE_EDIT_SESSIONS:
-                _IMAGE_EDIT_SESSIONS.pop(tid, None)
-                removed += 1
-    return removed
+    return await delete_runtime_items(IMAGE_EDIT_SESSION_NAMESPACE, task_ids)
 
 
 async def _get_token(model_id: str):
@@ -146,7 +135,7 @@ async def public_image_edit_start(data: ImageEditStartRequest):
         if len(img) > MAX_IMAGE_BYTES:
             raise HTTPException(
                 status_code=400,
-                detail="Image too large. Maximum ~15MB per image.",
+                detail="Image too large. Maximum 15MB per image.",
             )
 
     size = (data.size or "1024x1024").strip()

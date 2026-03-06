@@ -26,7 +26,8 @@
 
   /* === Constants === */
   const MAX_IMAGES = 3;
-  const MAX_IMAGE_SIZE = 50 * 1024 * 1024;
+  const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
+  const MAX_IMAGE_SIZE_LABEL = '15MB';
   const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
   /* === State === */
@@ -141,7 +142,7 @@
         continue;
       }
       if (file.size > MAX_IMAGE_SIZE) {
-        toast(`图片太大: ${file.name}（最大 50MB）`, 'error');
+        toast(`图片太大: ${file.name}（最大 ${MAX_IMAGE_SIZE_LABEL}）`, 'error');
         continue;
       }
       pendingReads++;
